@@ -1,5 +1,5 @@
 from loguru import logger
-from modelhub import ModelhubClient
+from modelhub import AsyncModelhub
 
 from srag.schema import Chunk
 
@@ -17,7 +17,7 @@ class BaseReranker:
 class ModelhubReranker(BaseReranker):
     def __init__(
         self,
-        client: ModelhubClient,
+        client: AsyncModelhub,
         rerank_model: str,
         rerank_top_k: int = 5,
         score_threshold: int = 0.1,
@@ -30,7 +30,7 @@ class ModelhubReranker(BaseReranker):
     async def rerank(self, query: str, chunks: list[Chunk], **kwargs) -> list[Chunk]:
         if not chunks:
             return []
-        rerank_output = await self.client.across_embedding(
+        rerank_output = await self.client.cross_embedding(
             [[query, chunk.content] for chunk in chunks], model=self.rerank_model
         )
         scores = rerank_output.scores

@@ -59,7 +59,7 @@ class FinalGeneration(BaseTransform):
         self.top_p = top_p
 
     async def transform(self, state: RAGState, **kwargs) -> RAGState:
-        resp = await self.shared.llm.achat(
+        resp = await self.shared.llm.chat(
             state.final_prompt, model=self.llm_model, temperature=self.temperature, top_p=self.top_p
         )
         state.response = resp.generated_text
@@ -74,7 +74,7 @@ class FinalGeneration(BaseTransform):
 
     async def stream(self, state: RAGState, **kwargs):
         state.response = ""
-        async for token in self.shared.llm.astream_chat(
+        async for token in self.shared.llm.stream_chat(
             state.final_prompt, model=self.llm_model, temperature=self.temperature, top_p=self.top_p
         ):
             state.response += token.token.text

@@ -1,8 +1,7 @@
-import os
 from typing import Any
 
 import pydantic
-from modelhub import ModelhubClient
+from modelhub import AsyncModelhub
 
 
 class BaseModel(pydantic.BaseModel):
@@ -31,11 +30,7 @@ class Agent(BaseModel):
     def _init_llm(self):
         if self.llm_client is not None:
             return
-        self.llm_client = ModelhubClient(
-            host=os.getenv("MODELHUB_HOST"),
-            user_name=os.getenv("MODELHUB_USER_NAME"),
-            user_password=os.getenv("MODELHUB_USER_PASSWORD"),
-        )
+        self.llm_client = AsyncModelhub()
 
     async def llm(self, prompt: str, parameters: dict | None = None, **kwargs):
         self._init_llm()

@@ -3,7 +3,7 @@ import time
 import warnings
 from typing import Literal
 
-from modelhub import ModelhubClient
+from modelhub import AsyncModelhub
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models
 
@@ -126,7 +126,7 @@ class QdrantIndexer(BaseIndexer):
         distance_type: Literal["cosine", "euclidean", "dot", "manhattan"] = "cosine",
         doc_metadata_collection: str = "doc_metadata",
         default_index_name: str = "documents",
-        client: ModelhubClient | None = None,
+        client: AsyncModelhub | None = None,
         float_type: Literal["float16", "float32"] = "float32",
         dense_vector_name: str = "dense",
         sparse_vector_name: str = "sparse",
@@ -141,7 +141,7 @@ class QdrantIndexer(BaseIndexer):
         self.use_full_text = use_full_text
         self.batch_size = batch_size
         self.parallel = parallel
-        self.client = client or ModelhubClient()
+        self.client = client or AsyncModelhub()
         self.doc_metadata_collection = doc_metadata_collection
         self.default_index_name = default_index_name
         self.dense_vector_name = dense_vector_name
@@ -190,11 +190,11 @@ class QdrantIndexer(BaseIndexer):
 
     async def _get_embeddings(self, texts: list[str]):
         try:
-            embed_output = await self.client.aget_embeddings(texts, model=self.text_embedding_model)
+            embed_output = await self.client.get_embeddings(texts, model=self.text_embedding_model)
             embeddings = embed_output.embeddings
             assert len(embeddings) == len(texts)
             if self.use_sparse:
-                sparse_embed_output = await self.client.aget_embeddings(
+                sparse_embed_output = await self.client.get_embeddings(
                     texts,
                     model=self.sparse_embedding_model,
                     parameters={"return_sparse": True},

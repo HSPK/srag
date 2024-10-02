@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import anyio
 import pydantic
-from modelhub import ModelhubClient
+from modelhub import AsyncModelhub
 
 from .document import Chunk
 from .llm.message import Message
@@ -52,7 +52,7 @@ class BaseModel(pydantic.BaseModel):
 
 @dataclass
 class SharedResource:
-    llm: ModelhubClient | None = None
+    llm: AsyncModelhub | None = None
 
 
 class BaseTransform:
@@ -130,9 +130,9 @@ class BasePipeline:
         transforms: list[BaseTransform],
         *,
         listeners: list[PipelineListener] | None = None,
-        llm: ModelhubClient | None = None,
+        llm: AsyncModelhub | None = None,
     ):
-        self.llm = llm or ModelhubClient()
+        self.llm = llm or AsyncModelhub()
         self._transforms = transforms
         self._listener = PipelineBatchListener(listeners)
         self._inited = False

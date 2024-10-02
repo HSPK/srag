@@ -1,6 +1,6 @@
 from typing import Awaitable, Callable
 
-from modelhub import ModelhubClient
+from modelhub import AsyncModelhub
 
 from srag.rag.document import BaseReranker, BaseRetriever
 from srag.schema import BasePipeline, Chunk, Message, PipelineListener
@@ -71,7 +71,7 @@ def _build_vanilla_transforms(
 
 def build_vanilla_pipeline(
     llm_model: str,
-    llm: ModelhubClient | None = None,
+    llm: AsyncModelhub | None = None,
     retriever: BaseRetriever | None = None,
     reranker: BaseReranker | None = None,
     fn_preprocess: Callable[[str], Awaitable[str]] | None = None,
