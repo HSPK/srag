@@ -4,9 +4,9 @@ from .pipeline import (
     BasePipeline,
     BaseTransform,
     LLMCost,
-    PipelineListener,
     RAGState,
     SharedResource,
+    TransformListener,
 )
 
 __all__ = [
@@ -18,5 +18,5 @@ __all__ = [
     "SharedResource",
     "BaseTransform",
     "BasePipeline",
-    "PipelineListener",
+    "TransformListener",
 ]

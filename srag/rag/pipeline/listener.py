@@ -2,7 +2,7 @@ import time
 
 import pydantic
 
-from srag.schema import BaseTransform, PipelineListener, RAGState
+from srag.schema import BaseTransform, RAGState, TransformListener
 
 
 class TransformLog(pydantic.BaseModel):
@@ -17,7 +17,7 @@ class TransformLog(pydantic.BaseModel):
         self.state_after = state
 
 
-class PipelineMemoryStore(PipelineListener):
+class PipelineMemoryStore(TransformListener):
     def __init__(self):
         self.logs = []
 

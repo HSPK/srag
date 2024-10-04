@@ -1,14 +1,15 @@
 from dataclasses import dataclass
+from typing import List, Optional, TypedDict, Union, Unpack
 
 import anyio
-import pydantic
 from modelhub import AsyncModelhub
 
 from .document import Chunk
 from .llm.message import Message
 
 
-class LLMCost(pydantic.BaseModel):
+@dataclass
+class LLMCost:
     total_tokens: int = 0
     total_cost: float = 0.0
     input_tokens: int = 0
@@ -17,82 +18,29 @@ class LLMCost(pydantic.BaseModel):
     output_cost: float = 0.0
 
 
-class RAGState(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True, extra="allow")
-
-    query: str | None = None
-    doc_ids: list[str] | None = None
-    rewritten_queries: list[str] | None = None
-    history: list[Message] | str | None = None
-    chunks: list[Chunk] | None = None
-    context: str | None = None
-    final_prompt: str | None = None
-    response: str | None = None
-    cost: LLMCost | None = None
-
-    def __getattribute__(self, name: str):
-        try:
-            return super().__getattribute__(name)
-        except AttributeError as e:
-            v = self.model_dump().get(name, None)
-            if v is not None:
-                return v
-            raise AttributeError(f"Attribute {name} not found.") from e
-
-    def __getitem__(self, name: str):
-        return self.__getattribute__(name)
-
-    def __setitem__(self, name: str, value):
-        self.__setattr__(name, value)
-
-
-class BaseModel(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
+class RAGState(TypedDict, total=False):
+    query: str
+    doc_ids: List[str]
+    rewritten_queries: List[str]
+    history: Union[List[Message], str]
+    chunks: List[Chunk]
+    context: str
+    final_prompt: str
+    response: str
+    cost: LLMCost
 
 
 @dataclass
 class SharedResource:
-    llm: AsyncModelhub | None = None
+    llm: AsyncModelhub
+    listener: "TranformBatchListener"
 
 
-class BaseTransform:
-    _inited: bool = False
-    name: str = "transform"
-    shared: SharedResource | None = None
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.name = self.__class__.__name__
-
-    async def _init(self, shared: SharedResource):
-        """Internal initialization, not to be called directly."""
-        self.shared = shared
-        self._inited = True
-
-    async def _transform(self, *args, **kwargs) -> RAGState:
-        if not self._inited:
-            raise RuntimeError("Transformer not initialized.")
-        return await self.transform(*args, **kwargs)
-
-    async def _stream(self, *args, **kwargs):
-        if not self._inited:
-            raise RuntimeError("Transformer not initialized.")
-
-        async for s in self.stream(*args, **kwargs):
-            yield s
-
-    async def transform(self, state: RAGState, **kwargs) -> RAGState:
-        raise NotImplementedError
-
-    async def stream(self, state: RAGState, **kwargs):
-        yield await self.transform(state, **kwargs)
-
-
-class PipelineListener:
-    async def on_transform_enter(self, transform: BaseTransform, state: RAGState):
+class TransformListener:
+    async def on_transform_enter(self, transform: "BaseTransform", state: RAGState):
         pass
 
-    async def on_transform_exit(self, transform: BaseTransform, state: RAGState):
+    async def on_transform_exit(self, transform: "BaseTransform", state: RAGState):
         pass
 
     async def on_enter(self, *args, **kwargs):
@@ -102,8 +50,8 @@ class PipelineListener:
         pass
 
 
-class PipelineBatchListener:
-    def __init__(self, listeners: list[PipelineListener]):
+class TranformBatchListener:
+    def __init__(self, listeners: list[TransformListener]):
         if listeners is None:
             listeners = []
         self.listeners = listeners
@@ -124,46 +72,135 @@ class PipelineBatchListener:
         return super().__getattribute__(name)
 
 
-class BasePipeline:
+class BaseTransform:
     def __init__(
         self,
-        transforms: list[BaseTransform],
-        *,
-        listeners: list[PipelineListener] | None = None,
-        llm: AsyncModelhub | None = None,
+        transforms: Optional[List["BaseTransform"]] = None,
+        run_in_parallel: bool = False,
+        input_key: Optional[Union[List[str], str]] = None,
+        output_key: Optional[Union[List[str], str]] = None,
+        shared: Optional[SharedResource] = None,
+        *args,
+        **kwargs,
     ):
-        self.llm = llm or AsyncModelhub()
+        super().__init__(*args, **kwargs)
+        self.name = self.__class__.__name__
+        self.input_key = input_key
+        self.output_key = output_key
+        self.shared = shared
+
         self._transforms = transforms
-        self._listener = PipelineBatchListener(listeners)
+        self._run_in_parallel = run_in_parallel
         self._inited = False
 
-    async def _init(self):
+    async def _init_sub_transforms(self):
+        _to_init = [v for _, v in self.__dict__.items() if isinstance(v, BaseTransform)]
+        _to_init = _to_init + self._transforms if self._transforms is not None else []
+        if self._transforms is not None:
+            async with anyio.create_task_group() as tg:
+                for t in _to_init:
+                    t.name = f"{self.name}::{t.name}"
+                    tg.start_soon(t._init, self.shared)
+
+    async def _init(self, shared: SharedResource | None = None):
         if self._inited:
             return
-        async with anyio.create_task_group() as tg:
-            """Initialize all the transforms."""
-            for t in self._transforms:
-                tg.start_soon(t._init, SharedResource(llm=self.llm))
+        if self.shared is None and shared is None:
+            raise RuntimeError("SharedResource not provided.")
+        self.shared = shared or self.shared
+        await self._init_sub_transforms()
         self._inited = True
 
-    async def stream(self, **kwargs):
-        await self._init()
-        await self._listener.on_enter()
-        state = RAGState(**kwargs)
-        for t in self._transforms:
-            await self._listener.on_transform_enter(t, state)
-            async for s in t._stream(state):
-                yield s
-            await self._listener.on_transform_exit(t, state)
-        await self._listener.on_exit()
+    def _get_input(self, state: RAGState):
+        if isinstance(self.input_key, list):
+            return {k: state.get(k) for k in self.input_key}
+        else:
+            return {self.input_key: state.get(self.input_key)}
 
-    async def __call__(self, return_state: bool = False, **kwargs):
+    async def _run_sub_transforms(self, state: RAGState):
+        if self._transforms is None:
+            return state
+        if self._run_in_parallel:
+            async with anyio.create_task_group() as tg:
+                for t in self._transforms:
+                    tg.start_soon(t.__call__, state)
+        else:
+            for t in self._transforms:
+                state = await t.__call__(state)
+        return state
+
+    async def _run_sub_streams(self, state: RAGState):
+        if self._transforms is None:
+            return
+        if self._run_in_parallel:
+            async with anyio.create_task_group() as tg:
+                for t in self._transforms:
+                    tg.start_soon(t.__call__, state)
+            yield state
+            return
+        else:
+            for t in self._transforms:
+                async for s in t.__stream__(state):
+                    yield s
+
+    async def __call__(self, state: RAGState, **kwargs):
         await self._init()
-        await self._listener.on_enter()
-        state = RAGState(**kwargs)
-        for t in self._transforms:
-            await self._listener.on_transform_enter(t, state)
-            state = await t._transform(state)
-            await self._listener.on_transform_exit(t, state)
-        await self._listener.on_exit()
-        return state if return_state else state.response
+        await self.shared.listener.on_transform_enter(self, state)
+        state = await self._run_sub_transforms(state)
+        ret = await self.transform(state, **kwargs)
+        await self.shared.listener.on_transform_exit(self, state)
+        return ret
+
+    async def __stream__(self, state: RAGState, **kwargs):
+        await self._init()
+        await self.shared.listener.on_transform_enter(self, state)
+        async for s in self._run_sub_streams(state):
+            yield s
+        async for s in self.stream_transform(state, **kwargs):
+            yield s
+        await self.shared.listener.on_transform_exit(self, state)
+        return
+
+    async def transform(self, state: RAGState, **kwargs) -> RAGState:
+        return state
+
+    async def stream_transform(self, state: RAGState, **kwargs):
+        yield await self.transform(state)
+
+
+class BasePipeline(BaseTransform):
+    def __init__(
+        self,
+        transforms: List[BaseTransform] | None = None,
+        input_key: List[str] = ["query", "history", "doc_ids"],
+        output_key: str = "response",
+        listeners: list[TransformListener] | None = None,
+        llm: AsyncModelhub | None = None,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(
+            transforms=transforms,
+            run_in_parallel=False,
+            input_key=input_key,
+            output_key=output_key,
+            shared=SharedResource(
+                llm=llm or AsyncModelhub(), listener=TranformBatchListener(listeners)
+            ),
+            *args,
+            **kwargs,
+        )
+        self.forward = self.__call__
+
+    async def __call__(self, return_state: bool = False, **kwargs: Unpack[RAGState]):
+        return await super().__call__(state=kwargs, return_state=return_state)
+
+    async def transform(self, state: RAGState, return_state: bool = False, **kwargs) -> RAGState:
+        return state if return_state else state.get(self.output_key)
+
+    async def stream(self, **kwargs):
+        async for state in super().__stream__(state=kwargs):
+            yield state
+
+    async def stream_transform(self, state: RAGState, **kwargs):
+        yield state
