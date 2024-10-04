@@ -88,13 +88,13 @@ class BaseTransform:
         self._inited = False
 
     async def _init_sub_transforms(self):
-        _to_init = [v for _, v in self.__dict__.items() if isinstance(v, BaseTransform)]
-        _to_init = _to_init + self._transforms if self._transforms is not None else []
+        _to_init = [v for v in self.__dict__.values() if isinstance(v, BaseTransform)]
         if self._transforms is not None:
-            async with anyio.create_task_group() as tg:
-                for t in _to_init:
-                    t.name = f"{self.name}::{t.name}"
-                    tg.start_soon(t._init, self.shared)
+            _to_init = _to_init + self._transforms
+        async with anyio.create_task_group() as tg:
+            for t in _to_init:
+                t.name = f"{self.name}::{t.name}"
+                tg.start_soon(t._init, self.shared)
 
     async def _init(self, shared: SharedResource | None = None):
         if self._inited:
