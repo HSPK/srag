@@ -17,6 +17,20 @@ class TransformLog(pydantic.BaseModel):
         self.state_after = state
 
 
+class PerfTracker(TransformListener):
+    def __init__(self) -> None:
+        super().__init__()
+        self.pipeline_time = 0
+        self.time = []
+
+    async def on_transform_enter(self, transform: BaseTransform, state: RAGState):
+        self.time.append(time.time())
+
+    async def on_transform_exit(self, transform: BaseTransform, state: RAGState):
+        last_time = self.time.pop()
+        print(f"{transform.name} used {time.time() - last_time:.2f}s")
+
+
 class PipelineMemoryStore(TransformListener):
     def __init__(self):
         self.logs = []
@@ -26,9 +40,3 @@ class PipelineMemoryStore(TransformListener):
 
     async def on_transform_exit(self, transform: BaseTransform, state: RAGState):
         self.logs[-1].finish(state)
-
-    async def on_enter(self, *args, **kwargs):
-        self.logs = []
-
-    async def on_exit(self, *args, **kwargs):
-        pass

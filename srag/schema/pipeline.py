@@ -43,12 +43,6 @@ class TransformListener:
     async def on_transform_exit(self, transform: "BaseTransform", state: RAGState):
         pass
 
-    async def on_enter(self, *args, **kwargs):
-        pass
-
-    async def on_exit(self, *args, **kwargs):
-        pass
-
 
 class TranformBatchListener:
     def __init__(self, listeners: list[TransformListener]):
