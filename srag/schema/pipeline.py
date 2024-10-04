@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Optional, TypedDict, Union, Unpack
+from typing import List, Literal, Optional, TypedDict, Union, Unpack
 
 import anyio
 from modelhub import AsyncModelhub
@@ -71,6 +71,7 @@ class BaseTransform:
         self,
         transforms: Optional[List["BaseTransform"]] = None,
         run_in_parallel: bool = False,
+        run_type: Literal["before", "after", "ignore"] = "ignore",
         input_key: Optional[Union[List[str], str]] = None,
         output_key: Optional[Union[List[str], str]] = None,
         shared: Optional[SharedResource] = None,
@@ -85,6 +86,9 @@ class BaseTransform:
 
         self._transforms = transforms
         self._run_in_parallel = run_in_parallel
+        self._run_type = run_type
+        if self._run_type == "ignore" and self._transforms is None:
+            self._run_type = "after"
         self._inited = False
 
     async def _init_sub_transforms(self):
@@ -134,24 +138,31 @@ class BaseTransform:
             return
         else:
             for t in self._transforms:
-                async for s in t.__stream__(state):
+                async for s in t.stream(state):
                     yield s
 
     async def __call__(self, state: RAGState, **kwargs):
         await self._init()
         await self.shared.listener.on_transform_enter(self, state)
+        if self._run_type == "before":
+            state = await self.transform(state, **kwargs)
         state = await self._run_sub_transforms(state)
-        ret = await self.transform(state, **kwargs)
+        if self._run_type == "after":
+            state = await self.transform(state, **kwargs)
         await self.shared.listener.on_transform_exit(self, state)
-        return ret
+        return state
 
-    async def __stream__(self, state: RAGState, **kwargs):
+    async def stream(self, state: RAGState, **kwargs):
         await self._init()
         await self.shared.listener.on_transform_enter(self, state)
+        if self._run_type == "before":
+            async for s in self.stream_transform(state, **kwargs):
+                yield s
         async for s in self._run_sub_streams(state):
             yield s
-        async for s in self.stream_transform(state, **kwargs):
-            yield s
+        if self._run_type == "after":
+            async for s in self.stream_transform(state, **kwargs):
+                yield s
         await self.shared.listener.on_transform_exit(self, state)
         return
 
@@ -176,6 +187,7 @@ class BasePipeline(BaseTransform):
         super().__init__(
             transforms=transforms,
             run_in_parallel=False,
+            run_type="after",
             input_key=input_key,
             output_key=output_key,
             shared=SharedResource(
@@ -189,12 +201,12 @@ class BasePipeline(BaseTransform):
     async def __call__(self, return_state: bool = False, **kwargs: Unpack[RAGState]):
         return await super().__call__(state=kwargs, return_state=return_state)
 
+    async def stream(self, **kwargs: Unpack[RAGState]):
+        async for state in super().stream(state=kwargs):
+            yield state
+
     async def transform(self, state: RAGState, return_state: bool = False, **kwargs) -> RAGState:
         return state if return_state else state.get(self.output_key)
-
-    async def stream(self, **kwargs):
-        async for state in super().__stream__(state=kwargs):
-            yield state
 
     async def stream_transform(self, state: RAGState, **kwargs):
         yield state
