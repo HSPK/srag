@@ -2,7 +2,7 @@ import time
 
 import pydantic
 
-from srag.schema import BaseTransform, RAGState, TransformListener
+from ..pipeline import BaseTransform, RAGState, TransformListener
 
 
 class TransformLog(pydantic.BaseModel):

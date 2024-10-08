@@ -1,4 +1,4 @@
-from srag.schema import Document
+from srag.document import Document
 
 from ._base import BaseIndexer
 

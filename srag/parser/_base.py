@@ -1,6 +1,6 @@
 import os
 
-from srag.schema import Document
+from srag.document import Document
 
 
 class BaseParser:

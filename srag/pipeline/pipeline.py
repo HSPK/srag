@@ -2,10 +2,11 @@ from dataclasses import dataclass
 from typing import List, Literal, Optional, TypedDict, Union, Unpack
 
 import anyio
+from loguru import logger
 from modelhub import AsyncModelhub
 
-from .document import Chunk
-from .llm.message import Message
+from ..document.document import Chunk
+from ..llm.message import Message
 
 
 @dataclass
@@ -65,6 +66,15 @@ class TranformBatchListener:
             return self._on_event_construct(name)
         return super().__getattribute__(name)
 
+    def add_listener(self, listener: TransformListener):
+        self.listeners.append(listener)
+
+    def remove_listener(self, listener: TransformListener):
+        self.listeners.remove(listener)
+
+    def clear_listeners(self):
+        self.listeners = []
+
 
 class BaseTransform:
     def __init__(
@@ -100,11 +110,17 @@ class BaseTransform:
                 t.name = f"{self.name}::{t.name}"
                 tg.start_soon(t._init, self.shared)
 
+    def _default_sharedresource(self):
+        return SharedResource(llm=AsyncModelhub(), listener=TranformBatchListener([]))
+
     async def _init(self, shared: SharedResource | None = None):
         if self._inited:
             return
         if self.shared is None and shared is None:
-            raise RuntimeError("SharedResource not provided.")
+            logger.warning(
+                f"SharedResource not provided for {self.name}, using default shared resource. This may cause unexpected behavior."
+            )
+            shared = self._default_sharedresource()
         self.shared = shared or self.shared
         await self._init_sub_transforms()
         self._inited = True
@@ -115,46 +131,49 @@ class BaseTransform:
         else:
             return {self.input_key: state.get(self.input_key)}
 
-    async def _run_sub_transforms(self, state: RAGState):
+    async def _run_sub_transforms(self, state: RAGState, *args):
         if self._transforms is None:
             return state
         if self._run_in_parallel:
             async with anyio.create_task_group() as tg:
                 for t in self._transforms:
-                    tg.start_soon(t.__call__, state)
+                    tg.start_soon(t.__call__, state, *args)
         else:
             for t in self._transforms:
-                state = await t.__call__(state)
+                state = await t.__call__(state, *args)
         return state
 
-    async def _run_sub_streams(self, state: RAGState):
+    async def _run_sub_streams(self, state: RAGState, *args):
         if self._transforms is None:
             return
         if self._run_in_parallel:
             async with anyio.create_task_group() as tg:
                 for t in self._transforms:
-                    tg.start_soon(t.__call__, state)
+                    tg.start_soon(t.__call__, state, *args)
             yield state
             return
         else:
             for t in self._transforms:
-                async for s in t.stream(state):
+                async for s in t.stream(state, *args):
                     yield s
 
     async def __call__(self, state: RAGState, **kwargs):
         await self._init()
-        await self.shared.listener.on_transform_enter(self, state)
+        listener = self.shared.listener
+        await listener.on_transform_enter(self, state)
         if self._run_type == "before":
             state = await self.transform(state, **kwargs)
         state = await self._run_sub_transforms(state)
         if self._run_type == "after":
             state = await self.transform(state, **kwargs)
-        await self.shared.listener.on_transform_exit(self, state)
+        await listener.on_transform_exit(self, state)
         return state
 
     async def stream(self, state: RAGState, **kwargs):
         await self._init()
-        await self.shared.listener.on_transform_enter(self, state)
+        listener = self.shared.listener
+
+        await listener.on_transform_enter(self, state)
         if self._run_type == "before":
             async for s in self.stream_transform(state, **kwargs):
                 yield s
@@ -163,7 +182,7 @@ class BaseTransform:
         if self._run_type == "after":
             async for s in self.stream_transform(state, **kwargs):
                 yield s
-        await self.shared.listener.on_transform_exit(self, state)
+        await listener.on_transform_exit(self, state)
         return
 
     async def transform(self, state: RAGState, **kwargs) -> RAGState:

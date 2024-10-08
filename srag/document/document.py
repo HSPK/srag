@@ -5,7 +5,7 @@ import pydantic
 
 from srag.utils import get_current_time_formatted
 
-from ._base import BaseModel
+from .._base import BaseModel
 
 
 class Document(BaseModel):

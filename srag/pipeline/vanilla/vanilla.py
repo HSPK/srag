@@ -2,11 +2,11 @@ from typing import Awaitable, Callable
 
 from modelhub import AsyncModelhub
 
-from srag.rag.document import BaseReranker, BaseRetriever
-from srag.schema import BasePipeline, Chunk, Message, TransformListener
+from srag.document import BaseReranker, BaseRetriever
 
-from ._consts import DEFAULT_FINAL_PROMPT
-from .transforms import (
+from .._consts import DEFAULT_FINAL_PROMPT
+from ..pipeline import BasePipeline, Chunk, Message, TransformListener
+from .trans import (
     ContextComposer,
     Generation,
     HistoryProcessor,

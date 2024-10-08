@@ -1,7 +1,8 @@
 from typing import Awaitable, Callable
 
-from srag.rag.document import BaseReranker, BaseRetriever
-from srag.schema import BaseTransform, Chunk, LLMCost, Message, RAGState
+from srag.document import BaseReranker, BaseRetriever
+
+from ..pipeline import BaseTransform, Chunk, LLMCost, Message, RAGState
 
 
 class TextProcessor(BaseTransform):

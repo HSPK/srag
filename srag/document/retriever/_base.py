@@ -1,7 +1,7 @@
 from loguru import logger
 from modelhub import AsyncModelhub
 
-from srag.schema import Chunk
+from srag.document import Chunk
 
 
 class BaseRetriever:

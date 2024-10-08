@@ -7,7 +7,8 @@ from modelhub import AsyncModelhub
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models
 
-from srag.schema import Chunk, Document, exceptions
+from srag import exceptions
+from srag.document import Chunk, Document
 
 from ..retriever._base import BaseRetriever
 from ._base import BaseIndexer

@@ -1,4 +1,4 @@
-from srag.schema import Chunk, Document
+from srag.document import Chunk, Document
 
 
 class BaseIndexer:

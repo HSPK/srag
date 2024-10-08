@@ -2,7 +2,7 @@ import os
 
 from pyparse_client import AsyncPyParse
 
-from srag.schema import Document
+from srag.document import Document
 
 from ._base import BaseParser
 
